@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Gracefully stop Google Drive and related helpers on macOS
+
+set -euo pipefail
+
+echo "Shutting down Google Drive..."
+
+# 1) Ask the app to quit gracefully (no output if not running)
+osascript -e 'tell application "Google Drive" to quit' >/dev/null 2>&1 || true
+
+# Helper to term then kill by exact process name
+term_then_kill_exact() {
+  local name="$1"
+  pkill -x "$name" 2>/dev/null || true       # SIGTERM
+  sleep 0.5
+  if pgrep -x "$name" >/dev/null 2>&1; then
+    pkill -9 -x "$name" 2>/dev/null || true  # SIGKILL as fallback
+  fi
+}
+
+# Known process names seen with Google Drive for desktop
+term_then_kill_exact "Google Drive"
+term_then_kill_exact "Google Drive Helper"
+term_then_kill_exact "Google Drive Helper (Renderer)"
+term_then_kill_exact "Google Drive Helper (GPU)"
+
+# Target crashpad handlers linked to Google Drive only
+if pids=$(pgrep -f "Google Drive.*crashpad_handler" 2>/dev/null || true) && [[ -n "${pids:-}" ]]; then
+  kill -9 $pids 2>/dev/null || true
+fi
+
+# Target only Finder Sync launched by Google Drive (avoid generic killall)
+if pids=$(pgrep -f "Google.*FinderSyncExtension" 2>/dev/null || true) && [[ -n "${pids:-}" ]]; then
+  kill -9 $pids 2>/dev/null || true
+fi
+
+# Brief bounded wait for remaining processes to exit
+for _ in {1..10}; do
+  if ! pgrep -f "Google Drive" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.3
+done
+
+# Final verification
+if pgrep -af "Google Drive" >/dev/null 2>&1; then
+  echo "Warning: Some Google Drive processes may still be running:"
+  pgrep -af "Google Drive" || true
+else
+  echo "Google Drive has been shut down successfully"
+fi
