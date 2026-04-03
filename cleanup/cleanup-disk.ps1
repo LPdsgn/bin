@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Windows Disk Cleanup Script with Multi-Drive Support
@@ -22,6 +24,9 @@
     .\cleanup-disk.ps1 -Drive C
     .\cleanup-disk.ps1 -Drive C,D -Common
     .\cleanup-disk.ps1 -Drive All -DryRun
+.NOTES
+    Requires PowerShell 7+. Use pwsh.exe, not powershell.exe.
+    For elevated execution: gsudo pwsh -c "$HOME\.bin\cleanup\cleanup-disk.ps1 -DryRun"
 #>
 
 param(
@@ -77,13 +82,23 @@ function Write-ColorOutput {
 function Get-FolderSize {
     param([string]$Path)
 
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path $Path -ErrorAction SilentlyContinue)) {
         return "(not found)"
     }
 
     try {
-        $size = (Get-ChildItem -Path $Path -Recurse -Force -ErrorAction SilentlyContinue |
-                 Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+        $job = Start-Job -ScriptBlock {
+            param($p)
+            (Get-ChildItem -Path $p -Recurse -Force -ErrorAction SilentlyContinue |
+             Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+        } -ArgumentList $Path
+        $completed = $job | Wait-Job -Timeout 10
+        if ($null -eq $completed) {
+            $job | Stop-Job; $job | Remove-Job -Force
+            return "(scan timeout)"
+        }
+        $size = $job | Receive-Job
+        $job | Remove-Job -Force
 
         if ($null -eq $size -or $size -eq 0) {
             return "(empty)"
@@ -102,7 +117,7 @@ function Get-FolderSize {
 function Get-FolderSizeBytes {
     param([string]$Path)
 
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path $Path -ErrorAction SilentlyContinue)) {
         return 0
     }
 
@@ -119,14 +134,13 @@ function Get-FolderSizeBytes {
 function Test-IsEmpty {
     param([string]$Path)
 
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path $Path -ErrorAction SilentlyContinue)) {
         return $true
     }
 
     try {
-        $size = (Get-ChildItem -Path $Path -Recurse -Force -ErrorAction SilentlyContinue |
-                 Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
-        return ($null -eq $size -or $size -eq 0)
+        $items = Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1
+        return ($null -eq $items)
     }
     catch {
         return $true
@@ -150,7 +164,18 @@ function Remove-SafePath {
         [string]$Context = ""
     )
 
-    if (-not (Test-Path $Path)) {
+    try {
+        $exists = Test-Path $Path -ErrorAction Stop
+    }
+    catch {
+        Write-Host "> " -NoNewline
+        Write-Host ([char]0x2298) -ForegroundColor Yellow -NoNewline
+        Write-Host " $Description - Access denied, skipping"
+        $Script:Stats.Skipped++
+        return
+    }
+
+    if (-not $exists) {
         Write-Host "> " -NoNewline
         Write-Host ([char]0x2298) -ForegroundColor Yellow -NoNewline
         Write-Host " $Description - Not found, skipping"
@@ -347,18 +372,23 @@ function Get-UserProfilesOnDrive {
     $profiles = @()
     $usersPath = "${DriveLetter}:\Users"
 
-    if (Test-Path $usersPath) {
+    if (Test-Path $usersPath -ErrorAction SilentlyContinue) {
         Get-ChildItem -Path $usersPath -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             # Skip system folders
             if ($_.Name -notin @('Public', 'Default', 'Default User', 'All Users')) {
-                if (Test-Path "$($_.FullName)\AppData") {
-                    $profiles += @{
-                        Name        = $_.Name
-                        Path        = $_.FullName
-                        AppData     = "$($_.FullName)\AppData\Roaming"
-                        LocalAppData = "$($_.FullName)\AppData\Local"
-                        Temp        = "$($_.FullName)\AppData\Local\Temp"
+                try {
+                    if (Test-Path "$($_.FullName)\AppData" -ErrorAction Stop) {
+                        $profiles += @{
+                            Name        = $_.Name
+                            Path        = $_.FullName
+                            AppData     = "$($_.FullName)\AppData\Roaming"
+                            LocalAppData = "$($_.FullName)\AppData\Local"
+                            Temp        = "$($_.FullName)\AppData\Local\Temp"
+                        }
                     }
+                }
+                catch {
+                    # Skip profiles we can't access (e.g. Administrator, DefaultAppPool)
                 }
             }
         }
