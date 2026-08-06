@@ -755,6 +755,23 @@ foreach ($currentDrive in $SelectedDriveLetters) {
                 Remove-SafePath "$LocalAppData\Temp" "Local Temp ($($profile.Name))"
             }
 
+            # Claude Code Scratchpads
+            if (Confirm-CommonAction "Clean Claude Code scratchpads for $($profile.Name)?") {
+                $scratchpadCount = 0
+                Get-ChildItem -Path $Temp -Directory -Filter "claude-*" -ErrorAction SilentlyContinue | ForEach-Object {
+                    Get-ChildItem -Path $_.FullName -Recurse -Directory -Filter "scratchpad" -ErrorAction SilentlyContinue | ForEach-Object {
+                        Remove-SafePath $_.FullName "Claude Code scratchpad ($($profile.Name))"
+                        $scratchpadCount++
+                    }
+                }
+                if ($scratchpadCount -eq 0) {
+                    Write-Host "> " -NoNewline
+                    Write-Host ([char]0x2298) -ForegroundColor Yellow -NoNewline
+                    Write-Host " No Claude Code scratchpads found ($($profile.Name))"
+                    $Script:Stats.Skipped++
+                }
+            }
+
             # Browser Caches
             if (Confirm-CommonAction "Clean browser caches for $($profile.Name)?") {
                 # Chrome

@@ -404,6 +404,22 @@ if confirm "Clean advanced browser caches (Service Workers, GPU Cache)?"; then
     fi
 fi
 
+# 14b. Claude Code scratchpads
+CLAUDE_CODE_TMP="/tmp/claude-$(id -u)"
+if [ -d "$CLAUDE_CODE_TMP" ]; then
+    if confirm_common "Clean Claude Code scratchpads (temporary session working dirs)?"; then
+        scratchpad_count=0
+        while IFS= read -r -d '' scratchpad; do
+            safe_remove "$scratchpad" "Claude Code scratchpad ($(basename "$(dirname "$scratchpad")"))"
+            scratchpad_count=$((scratchpad_count + 1))
+        done < <(find "$CLAUDE_CODE_TMP" -type d -name scratchpad -print0 2>/dev/null)
+        if [ "$scratchpad_count" -eq 0 ]; then
+            echo -e "> ${YELLOW}⊘${NC} No Claude Code scratchpads found"
+            STATS_SKIPPED=$((STATS_SKIPPED + 1))
+        fi
+    fi
+fi
+
 # 15. Saved Application States
 if confirm "Clean saved application states (safe, apps will reopen in default positions)?"; then
     safe_remove "$HOME/Library/Saved Application State" "Saved Application States" "Some apps may be running"
