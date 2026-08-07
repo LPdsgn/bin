@@ -1,32 +1,46 @@
-# 🛠️ macOS Utility Scripts
+# 🛠️ Utility Scripts
 
-A curated collection of battle-tested bash utilities for macOS system management, maintenance, and productivity.
+A curated, cross-platform collection of battle-tested command-line utilities for system maintenance, security scanning, and productivity — on **macOS** (Bash) and **Windows** (PowerShell/Batch).
 
-![Bash](https://img.shields.io/badge/Bash-4.0%2B-green)
-![Platform](https://img.shields.io/badge/Platform-macOS-blue)
-![License](https://img.shields.io/badge/License-MIT-yellow)
-![Scripts](https://img.shields.io/badge/Scripts-2-orange)
+![Bash](https://shieldcn.dev/badge/Bash-4.0%2B-green.svg)
+![PowerShell](https://shieldcn.dev/badge/PowerShell-7.0%2B-blue.svg)
+![Platform](https://shieldcn.dev/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)
+![License](https://shieldcn.dev/badge/License-MIT-yellow.svg)
+![Scripts](https://shieldcn.dev/badge/Scripts-5-orange.svg)
 
 ## Overview
 
-This repository contains practical command-line tools designed to solve common macOS pain points. Each utility is thoroughly documented, safe by default, and built with real-world usage in mind.
+This repository (`~/.bin`) contains practical command-line tools for everyday system maintenance and WordPress security work. Each utility is self-contained, safe by default, and targets the platform(s) it was built for — some are macOS-only, some are Windows-only, and some ship a version for both.
 
 ## Available Utilities
 
+| Utility | Platform | Purpose |
+|---|---|---|
+| [🧹 Disk Cleanup](cleanup/) | macOS + Windows | Interactive cache/temp-file cleaner |
+| [🛑 Google Drive Killer](killgd/) | macOS | Force-quits stuck Google Drive processes |
+| [🌐 My IP](myip/) | Windows | Lists local IPv4 addresses per network interface |
+| [🔧 WP-CLI Wrapper](wp/) | macOS/Linux + Windows | Portable `wp-cli.phar` launcher |
+| [🛡️ WP Security Scanner](wp-scan/) | Cross-platform (PowerShell) | Scans WordPress PHP/JS files for malware patterns |
+
+---
+
 ### 🧹 [Disk Cleanup Tool](cleanup/)
 
-Comprehensive, interactive disk space cleaner that safely removes caches and temporary files.
+Comprehensive, interactive disk space cleaner that safely removes caches and temporary files. Ships two implementations sharing the same feature set:
 
-**Key Features:**
-- Cleans 17+ categories (browsers, dev tools, system caches)
-- Interactive prompts with dry-run support
-- Recovers gigabytes of space safely
-- Smart detection for installed tools only
+- `cleanup-disk` (Bash) — macOS: Xcode DerivedData, browser caches, package manager caches, Homebrew, iOS simulators, Claude Code scratchpads, and more
+- `cleanup-disk.ps1` (PowerShell 7+) — Windows: same categories adapted for Windows, plus multi-drive selection (`-Drive C,D`, `-Drive All`)
 
 **Quick Start:**
 ```bash
-cleanup --dry-run  # Preview cleanup
-cleanup --common   # Clean typical items
+# macOS
+cleanup-disk --dry-run   # Preview cleanup
+cleanup-disk --common    # Clean typical items
+```
+```powershell
+# Windows (pwsh)
+.\cleanup-disk.ps1 -DryRun
+.\cleanup-disk.ps1 -Common -Drive C
 ```
 
 [📚 Full Documentation](cleanup/README.md)
@@ -38,9 +52,8 @@ cleanup --common   # Clean typical items
 Gracefully terminates Google Drive and all related processes on macOS.
 
 **Key Features:**
-- Graceful shutdown with AppleScript
-- Terminates all helper processes and extensions
-- Safe fallback mechanisms (SIGTERM → SIGKILL)
+- Graceful shutdown with AppleScript, falling back to SIGTERM → SIGKILL
+- Terminates all helper processes, crashpad handlers, and Finder extensions
 - Process verification and reporting
 
 **Quick Start:**
@@ -53,84 +66,122 @@ killgd && sleep 2 && open -a "Google Drive"  # Restart
 
 ---
 
+### 🌐 [My IP](myip/)
+
+One-liner PowerShell script that lists every active IPv4 address on the machine, alongside its interface name (loopback excluded).
+
+**Quick Start:**
+```powershell
+.\myip\myip.ps1
+```
+
+---
+
+### 🔧 [WP-CLI Wrapper](wp/)
+
+Portable [WP-CLI](https://wp-cli.org/) launcher bundling `wp-cli.phar`, so `wp` works from any shell without a separate install:
+
+- `wp` — Bash wrapper (macOS/Linux, Cygwin-aware path translation)
+- `wp.bat` — Windows Batch wrapper
+
+**Quick Start:**
+```bash
+wp --info
+```
+```cmd
+wp.bat --info
+```
+
+Requires PHP on the `PATH`.
+
+---
+
+### 🛡️ [WP Security Scanner](wp-scan/)
+
+PowerShell script that recursively scans WordPress PHP/JS files for common malware and obfuscation patterns (`eval`, `base64_decode` chains, unsanitized `$_REQUEST` usage passed to `exec`/`system`, suspicious `atob`/`fromCharCode` in JS, etc.), and can export findings to a Markdown report.
+
+**Quick Start:**
+```powershell
+.\wp-scan\wp-scan.ps1 -Path C:\path\to\wordpress
+```
+
+---
+
 ## 📦 Installation
 
-### Quick Install
+### macOS
 
 ```bash
 # Clone the repository
-git clone https://github.com/LPdsgn/macos-scripts.git ~/bin
+git clone https://github.com/LPdsgn/macos-scripts.git ~/.bin
 
-# Make scripts executable
-chmod +x ~/bin/cleanup/cleanup-disk
-chmod +x ~/bin/killgd/kill-google-drive
+# Make Bash scripts executable
+chmod +x ~/.bin/cleanup/cleanup-disk ~/.bin/killgd/kill-google-drive
 
-# Add to PATH (optional - add to ~/.zshrc or ~/.bashrc)
-export PATH="$HOME/bin/cleanup:$HOME/bin/killgd:$PATH"
+# Add to PATH (~/.zshrc or ~/.bashrc)
+export PATH="$HOME/.bin/cleanup:$HOME/.bin/killgd:$HOME/.bin/wp:$PATH"
 ```
 
-### Individual Script Install
+### Windows
 
-Each utility can be installed independently:
+```powershell
+# Clone the repository
+git clone https://github.com/LPdsgn/macos-scripts.git $HOME\.bin
 
-```bash
-# Install only the cleanup tool
-cp cleanup/cleanup-disk /usr/local/bin/
-chmod +x /usr/local/bin/cleanup-disk
+# Allow running local scripts (once, per user)
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
-# Install only the Google Drive killer
-cp killgd/kill-google-drive /usr/local/bin/
-chmod +x /usr/local/bin/kill-google-drive
+# Add to PATH (persist via $PROFILE or System Environment Variables)
+$env:PATH += ";$HOME\.bin\cleanup;$HOME\.bin\myip;$HOME\.bin\wp-scan;$HOME\.bin\wp"
 ```
 
-```bash
-# Kill Google Drive
-killgd/kill-google-drive
-
-# Restart it
-open -a "Google Drive"
-
-# Or combine both
-killgd/kill-google-drive && sleep 2 && open -a "Google Drive"
-```
+PowerShell scripts require **PowerShell 7+** (`pwsh`, not the legacy `powershell.exe`).
 
 ## Use Cases
 
 ### For Developers
-- Clean up Xcode DerivedData and iOS simulators
-- Remove Node.js package manager caches (npm, pnpm, yarn)
-- Clear Python pip, Rust cargo, Java Maven/Gradle caches
-- Reclaim space from Homebrew old versions
+- Clean up Xcode DerivedData, iOS simulators, and Claude Code scratchpads (macOS)
+- Remove Node.js, pip, Cargo, Maven/Gradle package manager caches (macOS + Windows)
+- Manage WordPress installs from the CLI without a global WP-CLI install
 
 ### For Power Users
 - Clean browser caches across all major browsers
-- Empty all trash folders (System, iCloud, Google Drive, Dropbox)
-- Remove old system logs (30+ days)
-- Clear Adobe Creative Suite media caches
+- Reclaim space across multiple drives on Windows
+- Check local network IPv4 addresses at a glance
+
+### For WordPress Maintainers
+- Scan themes and plugins for backdoors, obfuscated code, and suspicious patterns before/after an incident
+- Export scan results to a shareable Markdown report
 
 ### For System Maintenance
-- Restart unresponsive Google Drive
-- Free up space before major updates
-- Regular maintenance automation
+- Restart an unresponsive Google Drive client
+- Free up space before major OS updates
+- Regular maintenance automation via scheduled tasks / cron
 
 ## 📋 Requirements
 
-### System Requirements
-- **OS**: macOS Monterey (12.0) or later
-- **Shell**: Bash 4.0 or higher (pre-installed on macOS)
-- **Permissions**: User-level (no sudo required)
+| Tool | Requirement |
+|---|---|
+| `cleanup-disk` (Bash) | macOS, Bash 4.0+ |
+| `cleanup-disk.ps1` | Windows, PowerShell 7.0+ |
+| `kill-google-drive` | macOS, Google Drive for desktop installed |
+| `myip.ps1` | Windows, PowerShell 7.0+ |
+| `wp` / `wp.bat` | PHP on `PATH` |
+| `wp-scan.ps1` | PowerShell 7.0+ (any OS) |
+
+All scripts run at user-level permissions — no `sudo`/admin required.
 
 ## 🔒 Safety & Security
 
 All scripts follow these principles:
 
-- ✅ **Safe by Default**: Remove only regenerable caches and temporary files
+- ✅ **Safe by Default**: Cleanup scripts remove only regenerable caches and temporary files
 - ✅ **User Confirmation**: Interactive prompts before destructive operations
-- ✅ **Dry Run Mode**: Preview changes without executing them
+- ✅ **Dry Run Mode**: Preview changes without executing them (`--dry-run` / `-DryRun`)
 - ✅ **Graceful Handling**: Try gentle methods before forceful ones
 - ✅ **Clear Reporting**: Detailed output with success/failure statistics
-- ✅ **Process Detection**: Check if apps are running before cleanup
-- ✅ **No Sudo**: All operations run with user-level permissions
+- ✅ **Read-Only Scanning**: `wp-scan` only reads files and flags patterns — it never modifies or deletes anything
+- ✅ **No Sudo/Admin**: All operations run with user-level permissions
 
 ## 🤝 Contributing
 
@@ -140,65 +191,25 @@ Contributions are welcome! Here's how you can help:
 
 1. Create a new directory for your script
 2. Follow the established pattern:
-   - Bash script with clear comments
-   - Safety features (dry-run, confirmations)
-   - Comprehensive README.md
+   - Bash and/or PowerShell script with clear comments
+   - Safety features (dry-run, confirmations) where destructive
+   - A per-tool README.md
    - Error handling and reporting
-3. Test thoroughly on multiple macOS versions
+3. Test on the platform(s) you target
 4. Submit a pull request
-
-### Improving Existing Scripts
-
-- Add new cleanup targets (disk cleanup)
-- Improve error handling
-- Add command-line options
-- Enhance documentation
-- Report bugs or edge cases
 
 ### Coding Standards
 
-- Use `set -euo pipefail` for robust error handling
+- Bash: `set -euo pipefail` for robust error handling
+- PowerShell: `#Requires -Version 7.0`, typed `param()` blocks
 - Implement dry-run mode for destructive operations
 - Provide colored, user-friendly output
-- Include help text (`--help` flag)
-- Comment complex logic
-- Test on latest macOS versions
+- Include help text (`--help` / `-Help`)
 
 ## License
 
 MIT License - Feel free to use, modify, and distribute these scripts.
 
-## Acknowledgments
-
-- Built with lessons learned from real-world macOS system administration
-- Inspired by the need for safe, reliable command-line tools
-- Community feedback and contributions
-
-```bash
-# Verify PATH includes script directories
-echo $PATH
-
-# Add to PATH temporarily
-export PATH="$HOME/bin/cleanup:$HOME/bin/killgd:$PATH"
-
-# Add permanently to ~/.zshrc or ~/.bashrc
-echo 'export PATH="$HOME/bin/cleanup:$HOME/bin/killgd:$PATH"' >> ~/.zshrc
-```
-
-## Further Reading
-
-- [macOS Terminal User Guide](https://support.apple.com/guide/terminal/welcome/mac)
-- [Bash Scripting Guide](https://www.gnu.org/software/bash/manual/)
-- [Advanced Bash-Scripting Guide](https://tldp.org/LDP/abs/html/)
-
-## Related Projects
-
-- [mas-cli](https://github.com/mas-cli/mas) - Mac App Store command line interface
-- [m-cli](https://github.com/rgcr/m-cli) - Swiss Army Knife for macOS
-- [mackup](https://github.com/lra/mackup) - Keep your application settings in sync
-
 ---
 
-**Made with ❤️ for the macOS community**
-
-*Last updated: January 2026*
+**Last updated: August 2026**
