@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+
+# WordPress Malware Scanner (Bash counterpart of wp-scan.ps1)
+# Scansiona temi e plugin WordPress per identificare codice potenzialmente malevolo.
+# Se PATH è la root di un'installazione WordPress, verifica prima i checksum
+# ufficiali di core e plugin con WP-CLI, poi cerca i pattern sospetti in PHP e JS.
+#
+# Usage: wp-scan [PATH]      (default: directory corrente)
+#   -h, --help    Mostra questo aiuto
+#
+# Richiede WP-CLI (`wp`): su Arch/CachyOS `sudo pacman -S wp-cli`, su macOS
+# `brew install wp-cli` oppure il wrapper ../wp/wp di questo repository.
+
+set -u
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+case "${1:-}" in
+    -h|--help)
+        grep "^#" "$0" | grep -v "^#!/" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+esac
+SCAN_PATH="${1:-.}"
+SCAN_PATH="${SCAN_PATH%/}"
+[ -d "$SCAN_PATH" ] || { echo -e "${RED}Percorso non trovato: $SCAN_PATH${NC}" >&2; exit 1; }
+
+# --- WP-CLI: obbligatorio ---------------------------------------------------
+WP_BIN=$(command -v wp || true)
+if [ -z "$WP_BIN" ]; then
+    case "$(uname -s)" in
+        Darwin)
+            REPO_WP="$(cd "$(dirname "$0")/.." && pwd)/wp/wp"
+            if [ -x "$REPO_WP" ]; then
+                WP_BIN="$REPO_WP"
+            else
+                echo -e "${RED}WP-CLI non trovato.${NC} Installa con: brew install wp-cli" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}WP-CLI non trovato.${NC} Installa con: sudo pacman -S wp-cli" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+echo -e "\n${CYAN}=== WordPress Malware Scanner ===${NC}"
+
+# --- 1. Checksum ufficiali (solo se PATH è una root WordPress) --------------
+if [ -d "$SCAN_PATH/wp-includes" ] && [ -f "$SCAN_PATH/wp-settings.php" ]; then
+    echo -e "${YELLOW}Verifica checksum core e plugin con WP-CLI...${NC}"
+    CHECKSUM_FAILED=0
+    "$WP_BIN" core verify-checksums --path="$SCAN_PATH" || CHECKSUM_FAILED=1
+    "$WP_BIN" plugin verify-checksums --all --path="$SCAN_PATH" || CHECKSUM_FAILED=1
+    if [ "$CHECKSUM_FAILED" -eq 1 ]; then
+        echo -e "${RED}⚠ Checksum non corrispondenti: file di core o plugin modificati${NC}\n"
+    else
+        echo -e "${GREEN}✓ Checksum core e plugin corretti${NC}\n"
+    fi
+else
+    echo -e "${YELLOW}Non è una root WordPress: verifica checksum saltata.${NC}"
+fi
+
+# --- 2. Scansione pattern ---------------------------------------------------
+echo -e "${YELLOW}Ricerca file PHP e JS...${NC}"
+TOTAL_FILES=$(find "$SCAN_PATH" -type f \( -name '*.php' -o -name '*.js' \) \
+    -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' | wc -l | tr -d ' ')
+echo -e "${GREEN}Trovati $TOTAL_FILES file da analizzare...${NC}"
+
+RESULTS=$(mktemp)
+trap 'rm -f "$RESULTS"' EXIT
+
+# scan EXT  (stdin: righe "regex<TAB>motivo[<TAB>regex di esclusione]")
+# Le regex sono ERE POSIX: funzionano con grep GNU (Linux) e BSD (macOS).
+scan() {
+    local ext=$1 re why excl
+    while IFS=$'\t' read -r re why excl; do
+        [ -n "$re" ] || continue
+        grep -rnHE --include="*.$ext" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=vendor \
+            -- "$re" "$SCAN_PATH" 2>/dev/null \
+        | { if [ -n "$excl" ]; then grep -vE -- "$excl"; else cat; fi; } \
+        | awk -F: -v why="$why" -v root="$SCAN_PATH/" '{ sub("^" root, "", $1); print $1 "\tL" $2 "\t" why }' >> "$RESULTS"
+    done
+}
+
+S='[[:space:]]*'
+Q=$'[\'"]'
+IN='\$_(GET|POST|REQUEST|COOKIE)'
+
+scan php <<EOF
+eval${S}\(	Esecuzione codice dinamico - potenziale backdoor
+base64_decode${S}\(${S}${Q}[A-Za-z0-9+/=]{50,}	Decodifica base64 di stringa lunga - possibile offuscamento
+gzinflate${S}\(${S}base64_decode	Decompressione + base64 - offuscamento multiplo
+str_rot13${S}\(${S}base64_decode	ROT13 + base64 - offuscamento multiplo
+preg_replace${S}\([^)]*${Q}/e${Q}	preg_replace con /e - esecuzione codice
+assert${S}\(${S}\\$	Assert con variabile - possibile esecuzione codice
+create_function	create_function deprecata - rischio esecuzione codice
+\\$\{${Q}GLOBALS${Q}	Accesso diretto a \$GLOBALS - manipolazione scope
+call_user_func${S}\(${S}\\$	call_user_func con variabile - esecuzione dinamica
+system${S}\(${S}${IN}	Esecuzione sistema con input utente non sanitizzato
+exec${S}\(${S}${IN}	Esecuzione comando con input utente non sanitizzato
+shell_exec${S}\(${S}${IN}	Shell exec con input utente non sanitizzato
+passthru${S}\(${S}${IN}	Passthru con input utente non sanitizzato
+file_get_contents${S}\(${S}\\$_(GET|POST|REQUEST)	file_get_contents con input GET/POST - possibile LFI/RFI
+file_put_contents${S}\([^)]*\\$_(GET|POST|REQUEST)	file_put_contents con input utente - scrittura file arbitraria
+unserialize${S}\(${S}${IN}	unserialize con input utente - object injection
+include${S}\(${S}\\$_(GET|POST|REQUEST)	include con input utente - file inclusion
+require${S}\(${S}\\$_(GET|POST|REQUEST)	require con input utente - file inclusion
+@${S}(eval|exec|system|shell_exec|passthru)	Soppressione errori su funzioni pericolose
+error_reporting${S}\(${S}0${S}\)	Disabilitazione errori - possibile occultamento
+\\\\x[0-9a-fA-F]{2}\\\\x[0-9a-fA-F]{2}\\\\x[0-9a-fA-F]{2}	Stringa con encoding esadecimale - offuscamento
+(eval|assert|system)${S}\(${S}(gzinflate|gzuncompress|base64_decode)	Esecuzione + decompressione/decodifica
+EOF
+
+scan js <<EOF
+eval${S}\(	Esecuzione codice JavaScript dinamico
+Function${S}\(${S}${Q}	Constructor Function - esecuzione codice dinamico
+setTimeout${S}\(${S}${Q}[^'"]*(eval|Function)	setTimeout con eval - esecuzione ritardata
+setInterval${S}\(${S}${Q}[^'"]*(eval|Function)	setInterval con eval - esecuzione ripetuta
+document\.write${S}\([^)]*(unescape|atob|fromCharCode)	document.write con decodifica - injection
+innerHTML${S}=.*(atob|unescape|fromCharCode)	innerHTML con decodifica - possibile XSS
+\.appendChild${S}\([^)]*script	Append script dinamico al DOM
+createElement${S}\(${Q}script${Q}	Creazione dinamica tag script
+XMLHttpRequest.*\.open${S}\([^)]*(https?:)?//	XMLHttpRequest a dominio esterno	wordpress\.org|wp\.com
+fetch${S}\(${Q}(https?:)?//	Fetch API a dominio esterno sospetto	wordpress\.org|wp\.com
+atob${S}\(${S}${Q}[A-Za-z0-9+/=]{50,}	Decodifica base64 di stringa lunga
+String\.fromCharCode${S}\([^)]{50,}\)	fromCharCode con molti caratteri - offuscamento
+unescape${S}\(${Q}%[0-9a-fA-F]{2}	Unescape con encoding - offuscamento
+location${S}=.*(atob|unescape|fromCharCode)	Redirect con decodifica - possibile phishing
+document\.cookie${S}=.*(;|\+).*(domain|path)	Manipolazione cookie con dominio/path
+new[[:space:]]+Function${S}\(.*\\$	Constructor Function con contenuto sospetto
+\.insertAdjacentHTML${S}\([^)]*(atob|unescape)	insertAdjacentHTML con decodifica
+postMessage${S}\([^)]*(https?:)?//	postMessage a origine esterna
+EOF
+
+sort -o "$RESULTS" "$RESULTS"
+COUNT=$(wc -l < "$RESULTS" | tr -d ' ')
+echo -e "\n${GREEN}File scansionati: $TOTAL_FILES${NC}\n"
+
+if [ "$COUNT" -eq 0 ]; then
+    echo -e "${GREEN}✓ Nessuna minaccia rilevata!${NC}"
+    echo -e "\n${CYAN}Scansione completata.${NC}\n"
+    exit 0
+fi
+
+echo -e "${RED}⚠ POTENZIALI MINACCE RILEVATE ⚠${NC}\n"
+printf '%-50s %-8s %s\n' "Percorso" "Pos." "Motivo"
+printf '%-50s %-8s %s\n' "--------" "----" "------"
+while IFS=$'\t' read -r file pos why; do
+    printf '%-50s %-8s %s\n' "$file" "$pos" "$why"
+done < "$RESULTS"
+echo -e "\n${YELLOW}Totale minacce rilevate: $COUNT${NC}\n"
+
+read -r -p "Vuoi salvare il report in formato Markdown? (s/n) " save
+if [[ "$save" =~ ^[sS]$ ]]; then
+    REPORT="wp_security_scan_$(date +%Y%m%d_%H%M%S).md"
+    {
+        echo "# WordPress Security Scan Report"
+        echo
+        echo "**Data scansione:** $(date '+%d/%m/%Y %H:%M:%S')"
+        echo "**Percorso:** \`$SCAN_PATH\`"
+        echo "**File scansionati:** $TOTAL_FILES"
+        echo "**Minacce rilevate:** $COUNT"
+        echo
+        echo "---"
+        echo
+        echo "## Dettagli Minacce"
+        echo
+        echo "| Percorso | Posizione | Motivo |"
+        echo "|----------|-----------|--------|"
+        while IFS=$'\t' read -r file pos why; do
+            echo "| \`$file\` | $pos | $why |"
+        done < "$RESULTS"
+        echo
+        echo "---"
+        echo
+        echo "## Note"
+        echo
+        echo "- Questo report identifica **potenziali** minacce che richiedono verifica manuale"
+        echo "- Non tutti i pattern rilevati sono necessariamente malevoli"
+        echo "- Verificare il contesto d'uso di ogni funzione segnalata"
+        echo "- Consultare la documentazione ufficiale di WordPress per le best practices"
+    } > "$REPORT"
+    echo -e "${GREEN}✓ Report salvato in: $REPORT${NC}"
+else
+    echo -e "${YELLOW}Report non salvato.${NC}"
+fi
+
+echo -e "\n${CYAN}Scansione completata.${NC}\n"

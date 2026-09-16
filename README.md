@@ -18,9 +18,10 @@ This repository (`~/.bin`) contains practical command-line tools for everyday sy
 |---|---|---|
 | [🧹 Disk Cleanup](cleanup/) | macOS + Linux + Windows | Interactive cache/temp-file cleaner |
 | [🛑 Google Drive Killer](killgd/) | macOS | Force-quits stuck Google Drive processes |
-| [🌐 My IP](myip/) | Windows | Lists local IPv4 addresses per network interface |
+| [🌐 My IP](myip/) | macOS/Linux + Windows | Lists local IPv4 addresses per network interface |
 | [🔧 WP-CLI Wrapper](wp/) | macOS/Linux + Windows | Portable `wp-cli.phar` launcher |
-| [🛡️ WP Security Scanner](wp-scan/) | Cross-platform (PowerShell) | Scans WordPress PHP/JS files for malware patterns |
+| [🛡️ WP Security Scanner](wp-scan/) | macOS/Linux (Bash) + Windows (PowerShell) | Scans WordPress PHP/JS files for malware patterns |
+| [📧 Mail Check](mailchk/) | macOS/Linux | SMTP reachability probe and mail settings discovery |
 
 ---
 
@@ -69,9 +70,15 @@ killgd && sleep 2 && open -a "Google Drive"  # Restart
 
 ### 🌐 [My IP](myip/)
 
-One-liner PowerShell script that lists every active IPv4 address on the machine, alongside its interface name (loopback excluded).
+Lists every active IPv4 address on the machine, alongside its interface name (loopback excluded).
+
+- `myip` — Bash (macOS `ifconfig`, Linux `ip`)
+- `myip.ps1` — PowerShell
 
 **Quick Start:**
+```bash
+myip
+```
 ```powershell
 .\myip\myip.ps1
 ```
@@ -99,12 +106,35 @@ Requires PHP on the `PATH`.
 
 ### 🛡️ [WP Security Scanner](wp-scan/)
 
-PowerShell script that recursively scans WordPress PHP/JS files for common malware and obfuscation patterns (`eval`, `base64_decode` chains, unsanitized `$_REQUEST` usage passed to `exec`/`system`, suspicious `atob`/`fromCharCode` in JS, etc.), and can export findings to a Markdown report.
+Recursively scans WordPress PHP/JS files for common malware and obfuscation patterns (`eval`, `base64_decode` chains, unsanitized `$_REQUEST` usage passed to `exec`/`system`, suspicious `atob`/`fromCharCode` in JS, etc.), and can export findings to a Markdown report.
+
+- `wp-scan` — Bash. Requires WP-CLI and aborts if missing (Linux: `sudo pacman -S wp-cli`; macOS: `brew install wp-cli` or falls back to the [wrapper](wp/) in this repo). When the path is a WordPress root it first runs `wp core verify-checksums` and `wp plugin verify-checksums --all`, then the pattern scan
+- `wp-scan.ps1` — PowerShell, pattern scan only
 
 **Quick Start:**
+```bash
+wp-scan /path/to/wordpress
+```
 ```powershell
 .\wp-scan\wp-scan.ps1 -Path C:\path\to\wordpress
 ```
+
+---
+
+### 📧 [Mail Check](mailchk/)
+
+Two Bash scripts for diagnosing email delivery without sending a message or using credentials:
+
+- `smtp-reachability-check.sh` — resolves MX records and probes `EHLO`/`MAIL FROM`/`RCPT TO`, never `DATA`
+- `discover-mail-settings.sh` — finds IMAP/POP3/SMTP client settings via SRV records, provider autoconfig and optionally Thunderbird ISPDB
+
+**Quick Start:**
+```bash
+mailchk user@example.com
+mailchk-discover --heuristic --ispdb user@example.com
+```
+
+Requires `dig`, `nc` (OpenBSD netcat), `curl`, `openssl`, `xmllint`. [📚 Full Documentation](mailchk/README.md)
 
 ---
 
@@ -149,6 +179,7 @@ PowerShell scripts require **PowerShell 7+** (`pwsh`, not the legacy `powershell
 - Clean browser caches across all major browsers
 - Reclaim space across multiple drives on Windows
 - Check local network IPv4 addresses at a glance
+- Diagnose email deliverability and discover mail client settings for any domain
 
 ### For WordPress Maintainers
 - Scan themes and plugins for backdoors, obfuscated code, and suspicious patterns before/after an incident
@@ -167,9 +198,12 @@ PowerShell scripts require **PowerShell 7+** (`pwsh`, not the legacy `powershell
 | `cleanup-disk-linux` (Bash) | Arch/CachyOS, `bleachbit`, `pacman-contrib` |
 | `cleanup-disk.ps1` | Windows, PowerShell 7.0+ |
 | `kill-google-drive` | macOS, Google Drive for desktop installed |
+| `myip` | macOS (`ifconfig`) or Linux (`iproute2`) |
 | `myip.ps1` | Windows, PowerShell 7.0+ |
 | `wp` / `wp.bat` | PHP on `PATH` |
+| `wp-scan` | Bash, WP-CLI (`wp` on `PATH`, or the repo wrapper on macOS) |
 | `wp-scan.ps1` | PowerShell 7.0+ (any OS) |
+| `mailchk/*.sh` | Bash 4.1+, `dig`, `nc`, `curl`, `openssl`, `xmllint` |
 
 All scripts run at user-level permissions — no `sudo`/admin required, except the pacman cache step of `cleanup-disk-linux`, which asks for `sudo` when you confirm it.
 

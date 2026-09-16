@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# List every active IPv4 address on the machine with its interface name
+# (loopback excluded). Bash counterpart of myip.ps1 for macOS and Linux.
+# Usage: myip
+
+case "$(uname -s)" in
+    Darwin)
+        ifconfig | awk '
+            /^[a-z0-9]+:/ { iface = $1; sub(":", "", iface) }
+            /inet / && $2 != "127.0.0.1" { print $2 "  |  " iface }'
+        ;;
+    *)
+        ip -o -4 addr show up scope global | awk '{ sub("/.*", "", $4); print $4 "  |  " $2 }'
+        ;;
+esac

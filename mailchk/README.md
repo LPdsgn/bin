@@ -28,10 +28,16 @@ The script:
 * Sends `RSET` and `QUIT`, but never `DATA`.
 * Returns automation-friendly exit codes.
 
-Dependencies are Bash 4.1+, `dig`, and `nc`. On Debian/Ubuntu:
+Dependencies are Bash 4.1+, `dig`, and `nc` (OpenBSD netcat). On Debian/Ubuntu:
 
 ```bash
 sudo apt install dnsutils netcat-openbsd
+```
+
+On Arch/CachyOS:
+
+```bash
+sudo pacman -S bind openbsd-netcat
 ```
 
 Interpretation is deliberately conservative:
@@ -85,6 +91,12 @@ Dipendenze Ubuntu/Debian:
 
 ```bash
 sudo apt install dnsutils curl openssl libxml2-utils netcat-openbsd
+```
+
+Dipendenze Arch/CachyOS (`curl` e `openssl` sono già nel sistema base):
+
+```bash
+sudo pacman -S bind libxml2 openbsd-netcat
 ```
 
 Ho validato sintassi, opzioni CLI e uno scenario end-to-end simulato con SRV IMAP 993, SMTP submission 587 e MX relay 25. Il comportamento con uno specifico provider dipenderà naturalmente dai record e dai file che pubblica.

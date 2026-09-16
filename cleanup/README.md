@@ -150,10 +150,10 @@ The script automatically sets:
 | Category | What runs | `--common` |
 |----------|-----------|:---:|
 | **BleachBit** | `bleachbit --clean --preset` with the cleaners saved in `~/.config/bleachbit/bleachbit.ini` (browser/app caches, thumbnails, trash). Skipped if no preset is saved or the GUI is open | ✓ |
-| **Python** | `uv cache clean` | ✓ |
+| **Python** | `uv cache clean`. Skipped while a `uv`/`uvx` process is running (it holds the cache lock and runs from the cache) | ✓ |
 | **AUR build caches** | `~/.cache/paru/clone`, `~/.cache/makepkg`, `~/.cache/Shelly` | ✓ |
 | **pacman cache** | `paccache -rk2` (keep 2 versions) + `paccache -ruk0` (drop uninstalled). Needs `sudo` | ✓ |
-| **Node** | `npm cache clean`, `pnpm store prune`, `bun pm cache rm` | ✓ |
+| **Node** | `npm cache clean`, `pnpm store prune`, `~/.bun/install/cache` | ✓ |
 | **Apps** | Spotify cache, winetricks downloads | ✓ |
 | **Docker** | `docker image prune -a` (all images not used by a container) | prompt |
 | **Java** | `~/.gradle/caches`, `~/.m2/repository` | prompt |

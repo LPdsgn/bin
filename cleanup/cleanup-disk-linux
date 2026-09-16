@@ -172,7 +172,9 @@ if is_tool_installed "bleachbit"; then
             STATS_SUCCESS=$((STATS_SUCCESS + 1))
         else
             echo -e "> ${GREEN}✓${NC} Running: bleachbit --clean --preset"
-            if LC_ALL=C bleachbit --clean --preset 2>/dev/null | grep -iE 'disk space|files deleted' | sed 's/^/  /'; then
+            # BleachBit skips a whole cleaner (Firefox, VS Code, Discord...) when the app is
+            # running and reports it on stderr: keep those lines visible.
+            if LC_ALL=C bleachbit --clean --preset 2>&1 | grep -iE 'disk space|files deleted|currently running' | sed 's/^/  /'; then
                 STATS_SUCCESS=$((STATS_SUCCESS + 1))
             else
                 echo -e "> ${RED}✗${NC} Error: BleachBit failed"
@@ -186,7 +188,14 @@ fi
 # 2. Python uv cache
 if is_tool_installed "uv"; then
     if confirm_common "Clean uv cache $(show_size "$HOME/.cache/uv")?"; then
-        run_cmd "uv cache clean" uv cache clean -q
+        # A running uvx tool (e.g. chroma-mcp for claude-mem) holds the cache lock
+        # and runs from the cache itself: cleaning would break it. Skip instead of waiting 300s.
+        if pgrep -x uv > /dev/null; then
+            echo -e "> ${YELLOW}⊘${NC} uv cache - a uv/uvx process is running ($(pgrep -x uv | head -1 | xargs ps -o args= -p | cut -c1-60)...), skipping"
+            STATS_SKIPPED=$((STATS_SKIPPED + 1))
+        else
+            run_cmd "uv cache clean" env UV_LOCK_TIMEOUT=10 uv cache clean -q
+        fi
     fi
 fi
 
@@ -215,7 +224,8 @@ if is_tool_installed "npm" || is_tool_installed "pnpm" || is_tool_installed "bun
     if confirm_common "Clean Node package manager caches (npm, pnpm, bun)?"; then
         is_tool_installed "npm" && run_cmd "npm cache clean --force" npm cache clean --force --silent
         is_tool_installed "pnpm" && run_cmd "pnpm store prune" pnpm store prune --silent
-        is_tool_installed "bun" && run_cmd "bun pm cache rm" bun pm cache rm
+        # `bun pm cache rm` refuses to run outside a project with a package.json
+        safe_remove "$HOME/.bun/install/cache" "bun install cache"
     fi
 fi
 
