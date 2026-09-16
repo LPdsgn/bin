@@ -16,7 +16,7 @@ This repository (`~/.bin`) contains practical command-line tools for everyday sy
 
 | Utility | Platform | Purpose |
 |---|---|---|
-| [🧹 Disk Cleanup](cleanup/) | macOS + Windows | Interactive cache/temp-file cleaner |
+| [🧹 Disk Cleanup](cleanup/) | macOS + Linux + Windows | Interactive cache/temp-file cleaner |
 | [🛑 Google Drive Killer](killgd/) | macOS | Force-quits stuck Google Drive processes |
 | [🌐 My IP](myip/) | Windows | Lists local IPv4 addresses per network interface |
 | [🔧 WP-CLI Wrapper](wp/) | macOS/Linux + Windows | Portable `wp-cli.phar` launcher |
@@ -29,13 +29,14 @@ This repository (`~/.bin`) contains practical command-line tools for everyday sy
 Comprehensive, interactive disk space cleaner that safely removes caches and temporary files. Ships two implementations sharing the same feature set:
 
 - `cleanup-disk` (Bash) — macOS: Xcode DerivedData, browser caches, package manager caches, Homebrew, iOS simulators, Claude Code scratchpads, and more
+- `cleanup-disk-linux` (Bash) — Arch/CachyOS: BleachBit preset, uv, AUR build caches, pacman cache, Node, Docker, Gradle, Cargo
 - `cleanup-disk.ps1` (PowerShell 7+) — Windows: same categories adapted for Windows, plus multi-drive selection (`-Drive C,D`, `-Drive All`)
 
 **Quick Start:**
 ```bash
-# macOS
-cleanup-disk --dry-run   # Preview cleanup
-cleanup-disk --common    # Clean typical items
+# macOS / Linux
+cleanup-disk --dry-run         # Preview cleanup
+cleanup-disk-linux --common    # Clean typical items (Linux)
 ```
 ```powershell
 # Windows (pwsh)
@@ -163,13 +164,14 @@ PowerShell scripts require **PowerShell 7+** (`pwsh`, not the legacy `powershell
 | Tool | Requirement |
 |---|---|
 | `cleanup-disk` (Bash) | macOS, Bash 4.0+ |
+| `cleanup-disk-linux` (Bash) | Arch/CachyOS, `bleachbit`, `pacman-contrib` |
 | `cleanup-disk.ps1` | Windows, PowerShell 7.0+ |
 | `kill-google-drive` | macOS, Google Drive for desktop installed |
 | `myip.ps1` | Windows, PowerShell 7.0+ |
 | `wp` / `wp.bat` | PHP on `PATH` |
 | `wp-scan.ps1` | PowerShell 7.0+ (any OS) |
 
-All scripts run at user-level permissions — no `sudo`/admin required.
+All scripts run at user-level permissions — no `sudo`/admin required, except the pacman cache step of `cleanup-disk-linux`, which asks for `sudo` when you confirm it.
 
 ## 🔒 Safety & Security
 

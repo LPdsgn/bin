@@ -1,0 +1,299 @@
+#!/bin/bash
+
+# Linux (Arch/CachyOS + GNOME) Disk Cleanup Script
+# Safely removes caches, build artifacts and temporary data
+# Usage: cleanup-disk-linux [OPTIONS]
+#   -d, --dry-run    Show what would be deleted without deleting
+#   -a, --all        Clean everything (default: interactive)
+#   -c, --common     Clean common items (BleachBit preset, package/build caches, app caches)
+#   -h, --help       Show this help message
+#
+# Never touched: ~/.cache/rclone (VFS cache of active Google Drive mounts),
+# ~/.cache/chroma (claude-mem index), browser profiles, ~/.claude sessions.
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+DRY_RUN=false
+CLEAN_ALL=false
+CLEAN_COMMON=false
+
+STATS_SUCCESS=0
+STATS_SKIPPED=0
+STATS_FAILED=0
+STATS_EMPTY=0
+FAILED_ITEMS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -d|--dry-run) DRY_RUN=true; shift ;;
+        -a|--all) CLEAN_ALL=true; shift ;;
+        -c|--common) CLEAN_COMMON=true; shift ;;
+        -h|--help)
+            grep "^#" "$0" | grep -v "^#!/" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+is_tool_installed() {
+    command -v "$1" &> /dev/null
+}
+
+show_size() {
+    local path="$1"
+    if [ -e "$path" ]; then
+        local size
+        size=$(du -sh "$path" 2>/dev/null | awk '{print $1}')
+        if [ -z "$size" ] || [ "$size" = "0" ]; then
+            echo "(empty)"
+        else
+            echo "($size)"
+        fi
+    else
+        echo "(not found)"
+    fi
+}
+
+is_empty() {
+    local path="$1"
+    [ -e "$path" ] || return 0
+    local size_kb
+    size_kb=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+    [ -z "$size_kb" ] || [ "$size_kb" -eq 0 ]
+}
+
+# Remove a path (rm -rf) with dry-run support and stats
+safe_remove() {
+    local path="$1"
+    local description="$2"
+    local context="${3:-}"
+
+    if [ ! -e "$path" ]; then
+        echo -e "> ${YELLOW}⊘${NC} $description - Not found, skipping"
+        STATS_SKIPPED=$((STATS_SKIPPED + 1))
+        return
+    fi
+    if is_empty "$path"; then
+        echo -e "> ${YELLOW}⊘${NC} $description (empty)"
+        STATS_EMPTY=$((STATS_EMPTY + 1))
+        return
+    fi
+
+    local size
+    size=$(show_size "$path")
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "> ${BLUE}[DRY RUN]${NC} Would delete: $description $size"
+        STATS_SUCCESS=$((STATS_SUCCESS + 1))
+    else
+        echo -e "> ${GREEN}✓${NC} Removing: $description $size"
+        if rm -rf "$path" 2>/dev/null; then
+            STATS_SUCCESS=$((STATS_SUCCESS + 1))
+        else
+            echo -e "> ${RED}✗${NC} Error: Could not remove $description - ${context:-permission denied or in use}"
+            FAILED_ITEMS+=("$description - ${context:-permission denied or in use}")
+            STATS_FAILED=$((STATS_FAILED + 1))
+        fi
+    fi
+}
+
+# Run a tool's own cleanup command with dry-run support and stats
+# Usage: run_cmd "description" cmd args...
+run_cmd() {
+    local description="$1"; shift
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "> ${BLUE}[DRY RUN]${NC} Would run: $description"
+        STATS_SUCCESS=$((STATS_SUCCESS + 1))
+        return
+    fi
+    echo -e "> ${GREEN}✓${NC} Running: $description"
+    if "$@"; then
+        STATS_SUCCESS=$((STATS_SUCCESS + 1))
+    else
+        echo -e "> ${RED}✗${NC} Error: $description failed"
+        FAILED_ITEMS+=("$description - command failed")
+        STATS_FAILED=$((STATS_FAILED + 1))
+    fi
+}
+
+confirm() {
+    local message="$1"
+    [ "$CLEAN_ALL" = true ] && return 0
+    [ "$CLEAN_COMMON" = true ] && return 1
+    echo -ne "${YELLOW}?${NC} $message (y/N): "
+    read -n 1 -r response
+    echo ""
+    [[ "$response" =~ ^[yY]$ ]]
+}
+
+confirm_common() {
+    [ "$CLEAN_COMMON" = true ] && return 0
+    confirm "$1"
+}
+
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo -e "${BLUE}  Linux Disk Cleanup Tool${NC}"
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+echo ""
+
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${YELLOW}Running in DRY RUN mode - nothing will be deleted${NC}"
+    echo ""
+fi
+if [ "$CLEAN_COMMON" = true ]; then
+    echo -e "${BLUE}Running with --common flag (cleaning typical items)${NC}"
+    echo ""
+fi
+
+echo -e "${BLUE}Current disk usage:${NC}"
+df -h / | tail -1 | awk '{print "Used: " $3 " / Free: " $4 " (" $5 " full)"}'
+echo ""
+TOTAL_BEFORE=$(df / | tail -1 | awk '{print $3}')
+
+# 1. BleachBit with the saved preset (browser/app caches, thumbnails, trash)
+if is_tool_installed "bleachbit"; then
+    if confirm_common "Run BleachBit with the saved preset (browser caches, thumbnails, trash)?"; then
+        if ! grep -q '^\[tree\]' "$HOME/.config/bleachbit/bleachbit.ini" 2>/dev/null; then
+            echo -e "> ${YELLOW}⊘${NC} BleachBit - no cleaners selected in bleachbit.ini, skipping"
+            STATS_SKIPPED=$((STATS_SKIPPED + 1))
+        elif pgrep -x bleachbit > /dev/null; then
+            echo -e "> ${YELLOW}⊘${NC} BleachBit - GUI is running, close it first"
+            STATS_SKIPPED=$((STATS_SKIPPED + 1))
+        elif [ "$DRY_RUN" = true ]; then
+            echo -e "> ${BLUE}[DRY RUN]${NC} BleachBit preview: $(LC_ALL=C bleachbit --preview --preset 2>/dev/null | grep -i 'disk space')"
+            STATS_SUCCESS=$((STATS_SUCCESS + 1))
+        else
+            echo -e "> ${GREEN}✓${NC} Running: bleachbit --clean --preset"
+            if LC_ALL=C bleachbit --clean --preset 2>/dev/null | grep -iE 'disk space|files deleted' | sed 's/^/  /'; then
+                STATS_SUCCESS=$((STATS_SUCCESS + 1))
+            else
+                echo -e "> ${RED}✗${NC} Error: BleachBit failed"
+                FAILED_ITEMS+=("BleachBit - command failed")
+                STATS_FAILED=$((STATS_FAILED + 1))
+            fi
+        fi
+    fi
+fi
+
+# 2. Python uv cache
+if is_tool_installed "uv"; then
+    if confirm_common "Clean uv cache $(show_size "$HOME/.cache/uv")?"; then
+        run_cmd "uv cache clean" uv cache clean -q
+    fi
+fi
+
+# 3. AUR build caches (re-downloaded on next build)
+if confirm_common "Clean AUR build caches (paru clones, makepkg sources, Shelly downloads)?"; then
+    safe_remove "$HOME/.cache/paru/clone" "paru clone cache"
+    safe_remove "$HOME/.cache/makepkg" "makepkg sources and builds"
+    safe_remove "$HOME/.cache/Shelly" "Shelly AUR cache"
+fi
+
+# 4. pacman package cache (keeps 2 versions of installed packages, drops uninstalled ones)
+if is_tool_installed "paccache"; then
+    if confirm_common "Prune pacman package cache $(show_size /var/cache/pacman/pkg)? (needs sudo)"; then
+        if [ "$DRY_RUN" = true ]; then
+            echo -e "> ${BLUE}[DRY RUN]${NC} paccache -k2: $(paccache -dk2 2>/dev/null | tail -1)"
+            echo -e "> ${BLUE}[DRY RUN]${NC} paccache -uk0: $(paccache -duk0 2>/dev/null | tail -1)"
+            STATS_SUCCESS=$((STATS_SUCCESS + 1))
+        else
+            run_cmd "sudo paccache -rk2 && paccache -ruk0" sudo sh -c 'paccache -rk2 && paccache -ruk0'
+        fi
+    fi
+fi
+
+# 5. Node package manager caches
+if is_tool_installed "npm" || is_tool_installed "pnpm" || is_tool_installed "bun"; then
+    if confirm_common "Clean Node package manager caches (npm, pnpm, bun)?"; then
+        is_tool_installed "npm" && run_cmd "npm cache clean --force" npm cache clean --force --silent
+        is_tool_installed "pnpm" && run_cmd "pnpm store prune" pnpm store prune --silent
+        is_tool_installed "bun" && run_cmd "bun pm cache rm" bun pm cache rm
+    fi
+fi
+
+# 6. Application caches
+if confirm_common "Clean application caches (Spotify, winetricks)?"; then
+    safe_remove "$HOME/.cache/spotify" "Spotify cache"
+    safe_remove "$HOME/.cache/winetricks" "winetricks downloads"
+fi
+
+# 7. Docker images not used by any container
+if is_tool_installed "docker" && docker info > /dev/null 2>&1; then
+    if confirm "Remove ALL Docker images not used by a container? (docker image prune -a)"; then
+        if [ "$DRY_RUN" = true ]; then
+            echo -e "> ${BLUE}[DRY RUN]${NC} Docker: $(docker system df 2>/dev/null | awk 'NR==2 {print "reclaimable " $NF " " $(NF-1)}')"
+            STATS_SUCCESS=$((STATS_SUCCESS + 1))
+        else
+            run_cmd "docker image prune -af" docker image prune -af
+        fi
+    fi
+fi
+
+# 8. Java build tool caches
+if [ -d "$HOME/.gradle/caches" ] || [ -d "$HOME/.m2/repository" ]; then
+    if confirm "Clean Java build tool caches (Gradle, Maven)?"; then
+        safe_remove "$HOME/.gradle/caches" "Gradle cache"
+        safe_remove "$HOME/.m2/repository" "Maven repository cache"
+    fi
+fi
+
+# 9. Rust toolchain caches
+if is_tool_installed "cargo"; then
+    if confirm "Clean Rust caches (cargo registry and git dependencies, re-downloaded on next build)?"; then
+        safe_remove "$HOME/.cargo/registry" "Cargo registry (index, cache, src)"
+        safe_remove "$HOME/.cargo/git" "Cargo git dependencies (db, checkouts)"
+    fi
+fi
+
+echo ""
+echo -e "${BLUE}════════════════════════════════════════${NC}"
+
+if [ "$DRY_RUN" = false ]; then
+    TOTAL_AFTER=$(df / | tail -1 | awk '{print $3}')
+    FREED=$((TOTAL_BEFORE - TOTAL_AFTER))
+    if [ "$FREED" -lt 1024 ]; then
+        FREED_DISPLAY="${FREED}KB"
+    elif [ "$FREED" -lt 1048576 ]; then
+        FREED_DISPLAY="$(echo "scale=1; $FREED / 1024" | bc)MB"
+    else
+        FREED_DISPLAY="$(echo "scale=2; $FREED / 1024 / 1024" | bc)GB"
+    fi
+
+    echo -e "${GREEN}Cleanup complete!${NC}"
+    echo ""
+    echo -e "${BLUE}Final disk usage:${NC}"
+    df -h / | tail -1 | awk '{print "Used: " $3 " / Free: " $4 " (" $5 " full)"}'
+    echo ""
+    echo -e "${GREEN}Space freed: ~${FREED_DISPLAY}${NC}"
+    echo ""
+    echo -e "${BLUE}Summary:${NC}"
+    echo -e "> ${GREEN}✓${NC} Successfully cleaned: $STATS_SUCCESS items"
+    [ "$STATS_EMPTY" -gt 0 ] && echo -e "> ${YELLOW}⊘${NC} Skipped (empty): $STATS_EMPTY items"
+    [ "$STATS_SKIPPED" -gt 0 ] && echo -e "> ${YELLOW}⊘${NC} Skipped (not found): $STATS_SKIPPED items"
+    if [ "$STATS_FAILED" -gt 0 ]; then
+        echo -e "> ${RED}✗${NC} Failed: $STATS_FAILED items"
+        echo ""
+        echo -e "${YELLOW}Failed items (need manual attention):${NC}"
+        for item in "${FAILED_ITEMS[@]}"; do
+            echo -e "  - $item"
+        done
+    fi
+else
+    echo -e "${YELLOW}Dry run complete. No files were deleted.${NC}"
+    echo -e "Run without --dry-run to actually clean up."
+    echo ""
+    echo -e "${BLUE}Summary:${NC}"
+    echo -e "> ${BLUE}Would clean: $STATS_SUCCESS items${NC}"
+    [ "$STATS_EMPTY" -gt 0 ] && echo -e "> ${YELLOW}Would skip (empty): $STATS_EMPTY items${NC}"
+    [ "$STATS_SKIPPED" -gt 0 ] && echo -e "> ${YELLOW}Would skip (not found): $STATS_SKIPPED items${NC}"
+fi
+
+echo -e "${BLUE}════════════════════════════════════════${NC}"

@@ -1,9 +1,13 @@
-# 🧹 macOS Disk Cleanup Tool
+# 🧹 Disk Cleanup Tool
 
-A comprehensive, interactive bash script for safely cleaning up disk space on macOS by removing cache files, development artifacts, and temporary data.
+Interactive scripts for safely cleaning up disk space by removing cache files, development artifacts, and temporary data. Three implementations share the same options and output format:
+
+- `cleanup-disk` — macOS (Bash)
+- `cleanup-disk-linux` — Arch/CachyOS + GNOME (Bash), see [Linux variant](#-linux-variant)
+- `cleanup-disk.ps1` — Windows (PowerShell 7+)
 
 ![Bash](https://img.shields.io/badge/Bash-4.0%2B-green)
-![Platform](https://img.shields.io/badge/Platform-macOS-blue)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## ✨ Features
@@ -138,6 +142,32 @@ The script automatically sets:
 3. **Xcode**: Cleaning DerivedData will require rebuilding projects on next open.
 
 4. **First Run**: Always use `--dry-run` first to see what would be deleted.
+
+## 🐧 Linux Variant
+
+`cleanup-disk-linux` targets Arch/CachyOS with GNOME. Same options as the macOS script (`--dry-run`, `--common`, `--all`). It delegates to each tool's own cleaner where one exists, and only uses `rm -rf` on plain download/build caches.
+
+| Category | What runs | `--common` |
+|----------|-----------|:---:|
+| **BleachBit** | `bleachbit --clean --preset` with the cleaners saved in `~/.config/bleachbit/bleachbit.ini` (browser/app caches, thumbnails, trash). Skipped if no preset is saved or the GUI is open | ✓ |
+| **Python** | `uv cache clean` | ✓ |
+| **AUR build caches** | `~/.cache/paru/clone`, `~/.cache/makepkg`, `~/.cache/Shelly` | ✓ |
+| **pacman cache** | `paccache -rk2` (keep 2 versions) + `paccache -ruk0` (drop uninstalled). Needs `sudo` | ✓ |
+| **Node** | `npm cache clean`, `pnpm store prune`, `bun pm cache rm` | ✓ |
+| **Apps** | Spotify cache, winetricks downloads | ✓ |
+| **Docker** | `docker image prune -a` (all images not used by a container) | prompt |
+| **Java** | `~/.gradle/caches`, `~/.m2/repository` | prompt |
+| **Rust** | `~/.cargo/registry`, `~/.cargo/git` (never `~/.cargo/bin`) | prompt |
+
+Deliberately never touched:
+
+- `~/.cache/rclone` — VFS cache of active rclone mounts; may hold writes not yet uploaded
+- `~/.cache/chroma` — claude-mem search index
+- Browser profiles, cookies, sessions — BleachBit preset only selects caches
+- `~/.claude` sessions, file history and plugin cache
+- `/tmp` — tmpfs, cleared on reboot
+
+Requires: `bleachbit`, `pacman-contrib` (for `paccache`), `bc`. Every other step is skipped when its tool is missing.
 
 ## License
 
