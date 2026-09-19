@@ -138,6 +138,20 @@ Requires `dig`, `nc` (OpenBSD netcat), `curl`, `openssl`, `xmllint`. [📚 Full 
 
 ---
 
+### 📝 [LLMs.txt Generator](create-llmstxt-py/)
+
+Python script that builds `llms.txt` (and optionally `llms-full.txt`) for a website via the Firecrawl API. Titles and descriptions come from page metadata, no LLM required. Fork of [firecrawl/create-llmstxt-py](https://github.com/firecrawl/create-llmstxt-py).
+
+**Quick Start:**
+```bash
+create-llmstxt-py/install.sh   # uv venv, Firecrawl key prompt, zsh alias
+create-llmstxt https://docs.example.com --no-full-text --output-dir ./out
+```
+
+Requires `uv` (installed automatically) and a Firecrawl API key. [📚 Full Documentation](create-llmstxt-py/README.md)
+
+---
+
 ## 📦 Installation
 
 ### macOS

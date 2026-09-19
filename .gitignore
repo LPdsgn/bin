@@ -7,3 +7,7 @@
 ehthumbs.db
 Thumbs.db
 /Icon?
+# Python
+.env
+.venv/
+__pycache__/
